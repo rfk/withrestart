@@ -288,6 +288,11 @@ def invoke(func,*args,**kwds):
     should return the special object _NoValue.
     """
     try:
+        calls = _stack.calls
+    except AttributeError:
+        _stack.calls = calls = []
+    calls.append((func,args,kwds))
+    try:
         return func(*args,**kwds)
     except Exception, e:
         _invoke_handlers(e)
@@ -297,6 +302,8 @@ def invoke(func,*args,**kwds):
             return invoked.value
         else:
             raise
+    finally:
+        calls.pop()
 
 
 def _invoke_handlers(err):
@@ -536,5 +543,10 @@ def raise_error(error):
 def skip():
     """Pre-defined restart that skips to the end of the restart context."""
     return _NoValue
+
+def retry():
+    """Pre-defined restart that retries the most-recently-invoked function."""
+    (func,args,kwds) = _stack.calls[-1]
+    return invoke(func,*args,**kwds)
 
 

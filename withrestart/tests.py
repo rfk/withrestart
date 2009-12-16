@@ -143,6 +143,29 @@ class TestRestarts(unittest.TestCase):
                     invoke_restart("my_raise_error",RuntimeError)
                 self.assertRaises(RuntimeError,invoke,div,6,0)
 
+    def test_retry(self):
+        call_count = {}
+        def callit(v):
+            if v not in call_count:
+                call_count[v] = v
+            else:
+                call_count[v] -= 1
+            if call_count[v] > 0:
+                raise ValueError("call me again")
+            return v
+        self.assertRaises(ValueError,callit,2)
+        self.assertRaises(ValueError,callit,2)
+        self.assertEquals(callit(2),2)
+        errors = []
+        with handlers:
+            @handlers.add(exc_type=ValueError)
+            def OnValueError(e):
+                errors.append(e)
+                invoke_restart("retry")
+            with restarts(retry):
+                self.assertEquals(invoke(callit,3),3)
+        self.assertEquals(len(errors),3)
+
 
     def test_README(self):
         """Ensure that the README is in sync with the docstring.
