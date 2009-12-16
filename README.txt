@@ -7,23 +7,31 @@ restart-based condition system of Common Lisp.  It's designed to make error
 recovery simpler and easier by removing the assumption that unhandled errors
 must be fatal.
 
-A "Restart" represents a named strategy for resuming execution of a function
+A "restart" represents a named strategy for resuming execution of a function
 after the occurrence of an error.  At any point during its execution a
 function can push a Restart object onto its call stack.  If an exception
-occurs within the scope of that Restart, calling code can invoke it to
-recover from the error and let the function continue its execution. By 
-providing several restarts, functions can offer several different strategies
+occurs within the scope of that Restart, code higher-up in the call chain can
+invoke it to recover from the error and let the function continue execution.
+By providing several restarts, functions can offer several different strategies
 for recovering from errors.
 
-Considering a function that reads the contents of all file from a directory
-into a dictionary in memory::
+A "handler" represents a higher-level strategy for dealing with the occurrence
+of an error.  It is conceptually similar to an "except" clause, in that one
+establishes a suite of Handler objects to be invoked if an error occurs during
+the execution of some code.  There is, however, a crucial difference: handlers
+are executed without unwinding the call stack.  They thus have the opportunity
+to take corrective action and then resume execution of whatever function
+raised the error.
+
+For example, consider a function that reads the contents of all files from a 
+directory into a dictionary in memory::
 
    def readall(dirname):
        data = {}
        for filename in os.listdir(readall):
            filepath = os.path.join(dirname,filename)
            data[filename] = open(filepath).read()
-        return data
+       return data
 
 If one of the files goes missing after the call to os.listdir() then the
 subsequent open() will raise an IOError.  While we could catch and handle the
@@ -31,9 +39,9 @@ error inside this function, what would be the appropriate action?  Should
 files that go missing be silently ignored?  Should they be re-created with
 some default contents?  Should a special sentinel value be placed in the
 data dictionary?  What value?  The readall() function does not have enough
-to decide on an appropriate recovery strategy.
+information to decide on an appropriate recovery strategy.
 
-Instead, readall() can provide the *infrastucture* for such recovery strageties
+Instead, readall() can provide the *infrastucture* for such recovery strategies
 and leave the final decision up to the calling code.  The following definition
 uses three pre-defined restarts to let the calling code (a) skip the missing
 file completely, (2) retry the call to open() after taking some corrective
@@ -44,8 +52,7 @@ action, or (3) use some other value in place of the missing file::
        for filename in os.listdir(readall):
            filepath = os.path.join(dirname,filename)
            with restarts(skip,retry,use_value):
-               fdata = invoke(open,filepath).read()
-           data[filename] = fdata
+               data[filename] = invoke(open,filepath).read()
        return data
 
 Here's how the calling code would look if it wanted to silently skip the
@@ -55,6 +62,11 @@ missing file::
        with Handler(IOError,"skip"):
            data = readall(dirname)
        return "".join(data.itervalues())
+
+This pushes a Handler instance into the execution context, which will detect
+IOError instances and response by invoking the "skip" restart point.  If this
+handler is invoked in response to an IOError, execution of the readall()
+function will continue immediately following the "with restarts(...)" block.
 
 Calling code that wanted to re-create the missing file would simply push
 a different error handler::
@@ -100,7 +112,7 @@ into the Restart object constructor::
        return data
 
 
-Or by using the @restart.add decorator to define restarts inline::
+Or by using the @restarts.add decorator to define restarts inline::
 
    def readall(dirname):
        data = {}
