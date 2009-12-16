@@ -55,6 +55,11 @@ action, or (3) use some other value in place of the missing file::
                data[filename] = invoke(open,filepath).read()
        return data
 
+Of note here is the use of the "with" statement to establish a new context
+in the scope of restarts, and use of the "invoke" wrapper when calling a
+function that might fail.  The latter allows restarts to inject an alternate
+return value for the failed function.
+
 Here's how the calling code would look if it wanted to silently skip the
 missing file::
 
@@ -64,7 +69,7 @@ missing file::
        return "".join(data.itervalues())
 
 This pushes a Handler instance into the execution context, which will detect
-IOError instances and response by invoking the "skip" restart point.  If this
+IOError instances and respond by invoking the "skip" restart point.  If this
 handler is invoked in response to an IOError, execution of the readall()
 function will continue immediately following the "with restarts(...)" block.
 
@@ -136,6 +141,11 @@ Handlers can also be defined inline using a similar syntax::
            data = readall(dirname)
        return "".join(data.itervalues())
 
+
+Now finally, a disclaimer.  I've never written any Common Lisp.  I've only read
+about the Common Lisp condition system and how awesome it is.  I'm sure there
+are many things that it can do that this module simply cannot.  Nevertheless,
+there's no shame in trying to pinch a good idea when you see one...
 
 """
 
