@@ -99,7 +99,7 @@ to pass the required value to the "use_value" restart::
 
 
 By separating the low-level details of recovering from an error from the
-high-level stragegy of what action to take, it's possible to create quite
+high-level strategy of what action to take, it's possible to create quite
 powerful recovery mechanisms.
 
 While this module provides a handful of pre-built restarts, functions will
