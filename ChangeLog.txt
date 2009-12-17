@@ -1,0 +1,20 @@
+
+
+v0.2.0:
+
+    * cleanly support yielding from within a restart context; previously
+      this would leave the generator's retarts active.
+    * require handlers to explicitly raise InvokeRestart(); this makes the
+      non-local control flow more explicit.
+    * add a proper RestartSuite class for grouping several restarts into
+      a single context:
+          * the RestartSuite is returned when entering its context, and
+            can be used to invoke functions within the scope of only those
+            restarts that it contains.
+          * the decorator syntax for adding restarts is now a normal method
+            on the RestartSuite object.
+    * add a proper HandlerSuite class for grouping several handlers into
+      a single context:
+          * the decorator syntax for adding handlers is now a normal method
+            on the HandlerSuite object.
+
