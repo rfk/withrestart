@@ -89,6 +89,11 @@ different error handler::
            data = readall(dirname)
        return "".join(data.itervalues())
 
+By raising InvokeRestart, this handler transfers control back to the restart
+that was  established by the readall() function.  This particular restart
+will re-execute the failing function call and let readall() continue with its
+operation.
+
 Calling code that wanted to use a special sentinel value would use a handler
 to pass the required value to the "use_value" restart::
 
