@@ -388,7 +388,7 @@ def invoke(func,*args,**kwds):
     function.
 
     The make a restart that does not trigger a return from invoke(), it
-    should return the special object _NoValue.
+    should return the special object NoValue.
     """
     _cur_calls.push((invoke,func,args,kwds))
     try:
@@ -398,7 +398,7 @@ def invoke(func,*args,**kwds):
             _invoke_cur_handlers(err)
         except InvokeRestart, e:
             val = e.invoke()
-            if val is not _NoValue:
+            if val is not NoValue:
                 return val
             else:
                 raise
@@ -555,7 +555,7 @@ def raise_error(error):
 
 def skip():
     """Pre-defined restart that skips to the end of the restart context."""
-    return _NoValue
+    return NoValue
 
 def retry():
     """Pre-defined restart that retries the most-recently-invoked function."""
