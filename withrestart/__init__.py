@@ -2,7 +2,7 @@
 
   withrestart:  structured error recovery using named restart functions
 
-This is a Pythonisation (lispers might rightly say "bastardisation") of the
+This is a Pythonisation (Lispers might rightly say "bastardisation") of the
 restart-based condition system of Common Lisp.  It's designed to make error
 recovery simpler and easier by removing the assumption that unhandled errors
 must be fatal.
@@ -24,11 +24,11 @@ to take corrective action and then resume execution of whatever function
 raised the error.
 
 For example, consider a function that reads the contents of all files from a 
-directory into a dictionary in memory::
+directory into a dict in memory::
 
    def readall(dirname):
        data = {}
-       for filename in os.listdir(readall):
+       for filename in os.listdir(dirname):
            filepath = os.path.join(dirname,filename)
            data[filename] = open(filepath).read()
        return data
@@ -41,7 +41,7 @@ some default contents?  Should a special sentinel value be placed in the
 data dictionary?  What value?  The readall() function does not have enough
 information to decide on an appropriate recovery strategy.
 
-Instead, readall() can provide the *infrastucture* for such recovery strategies
+Instead, readall() can provide the *infrastructure* for doing error recovery
 and leave the final decision up to the calling code.  The following definition
 uses three pre-defined restarts to let the calling code (a) skip the missing
 file completely, (2) retry the call to open() after taking some corrective
@@ -49,9 +49,9 @@ action, or (3) use some other value in place of the missing file::
 
    def readall(dirname):
        data = {}
-       for filename in os.listdir(readall):
+       for filename in os.listdir(dirname):
            filepath = os.path.join(dirname,filename)
-           with restarts(skip,retry,use_value):
+           with restarts(skip,retry,use_value) as invoke:
                data[filename] = invoke(open,filepath).read()
        return data
 
@@ -73,13 +73,18 @@ IOError instances and respond by invoking the "skip" restart point.  If this
 handler is invoked in response to an IOError, execution of the readall()
 function will continue immediately following the "with restarts(...)" block.
 
-Calling code that wanted to re-create the missing file would simply push
-a different error handler::
+Note that there is no way to achieve this skip-and-continue behaviour using an
+ordinary try-except block; by the time the IOError has propagated up to the
+concatenate() function for processing, all context from the execution of 
+readall() will have been unwound and cannot be resumed.
+
+Calling code that wanted to re-create the missing file would simply push a
+different error handler::
 
    def concatenate(dirname):
        def handle_IOError(e):
            open(e.filename,"w").write("MISSING")
-           invoke_restart("retry")
+           raise InvokeRestart("retry")
        with Handler(IOError,handle_IOError):
            data = readall(dirname)
        return "".join(data.itervalues())
@@ -92,7 +97,7 @@ to pass the required value to the "use_value" restart::
            def read():
                return "MISSING"
        def handle_IOError(e):
-           invoke_restart("use_value",MissingFile())
+           raise InvokeRestart("use_value",MissingFile())
        with Handler(IOError,handle_IOError):
            data = readall(dirname)
        return "".join(data.itervalues())
@@ -103,12 +108,12 @@ high-level strategy of what action to take, it's possible to create quite
 powerful recovery mechanisms.
 
 While this module provides a handful of pre-built restarts, functions will
-usualy want to create their own.  This can be done by passing a callback
+usually want to create their own.  This can be done by passing a callback
 into the Restart object constructor::
 
    def readall(dirname):
        data = {}
-       for filename in os.listdir(readall):
+       for filename in os.listdir(dirname):
            filepath = os.path.join(dirname,filename)
            def log_error():
                print "an error occurred"
@@ -117,14 +122,14 @@ into the Restart object constructor::
        return data
 
 
-Or by using the @restarts.add decorator to define restarts inline::
+Or by using a decorator to define restarts inline::
 
    def readall(dirname):
        data = {}
-       for filename in os.listdir(readall):
+       for filename in os.listdir(dirname):
            filepath = os.path.join(dirname,filename)
-           with restarts:
-               @restarts.add
+           with restarts() as invoke:
+               @invoke.add_restart
                def log_error():
                    print "an error occurred"
                data[filename] = open(filepath).read()
@@ -133,11 +138,11 @@ Or by using the @restarts.add decorator to define restarts inline::
 Handlers can also be defined inline using a similar syntax::
 
    def concatenate(dirname):
-       with handlers:
-           @handlers.add
+       with handlers() as h:
+           @h.add_handler
            def IOError(e):
                open(e.filename,"w").write("MISSING")
-               invoke_restart("retry")
+               raise InvokeRestart("retry")
            data = readall(dirname)
        return "".join(data.itervalues())
 
@@ -150,7 +155,7 @@ there's no shame in trying to pinch a good idea when you see one...
 """
 
 __ver_major__ = 0
-__ver_minor__ = 1
+__ver_minor__ = 2
 __ver_patch__ = 0
 __ver_sub__ = ""
 __version__ = "%d.%d.%d%s" % (__ver_major__,__ver_minor__,
@@ -158,15 +163,10 @@ __version__ = "%d.%d.%d%s" % (__ver_major__,__ver_minor__,
 
 
 
-#  The shared variable "_stack" is used to track per-thread stacks
-#  of handlers and restarts.
-try:
-    import threading
-except ImportError:
-    class _stack:
-        pass
-else:
-    _stack = threading.local()
+from withrestart.callstack import CallStack
+_cur_restarts = CallStack()
+_cur_handlers = CallStack()
+_cur_calls = CallStack()
 
 
 class _NoValue:
@@ -187,26 +187,47 @@ class MissingRestartError(RestartError):
         return "No restart named '%s' has been defined" % (self.name,)
 
 
-class RestartInvoked(Exception):
-    """Exception raised to indicate that a restart was invoked.
+class InvokeRestart(Exception):
+    """Exception raised by handlers to invoke a selected restart.
 
-    This is used as a flow-control mechanism and should never be seen
-    by code outside this module.
+    This is used as a flow-control mechanism and should never be seen by
+    code outside this module.  It's purposely not a sublcass of RestartError;
+    you really shouldn't be catching it except under special circumstances.
     """
-    def __init__(self,restart):
+    def __init__(self,restart,*args,**kwds):
+        if not isinstance(restart,Restart):
+            name = restart; restart = find_restart(name)
+            if restart is None:
+                raise MissingRestartError(name)
         self.restart = restart
+        self.args = args
+        self.kwds = kwds
+
+    def invoke(self):
+        return self.restart.invoke(*self.args,**self.kwds)
 
 
 class Restart(object):
     """Restart marker object.
 
     Instances of Restart represent named strategies for resuming execution
-    after the occurrence of an error.  They push themselves onto the execution
-    context when entered and pop themselves when exited.  If they are exited
-    with an error, the any registered error handlers are invoked.
+    after the occurrence of an error.  Collections of Restart objects are
+    pushed onto the execution context where code can cleanly restart after
+    the occurrence of an error, but requires information from outside the
+    function in order to do so.
+
+    When an individual Restat object is used as a context manager, it will
+    automatically wrap itself in a RestartSuite object.
     """
 
     def __init__(self,func,name=None):
+        """Restart object initializer.
+
+        A Restart must be initialized with a callback function to execute
+        when the restart is invoked.  If the optional argument 'name' is
+        given this becomes the name of the Restart; otherwise its name is
+        taken from the callback function.
+        """
         self.func = func
         if name is None:
             self.name = func.func_name
@@ -214,28 +235,172 @@ class Restart(object):
             self.name = name
 
     def invoke(self,*args,**kwds):
-        self.value = self.func(*args,**kwds)
-        raise RestartInvoked(self)
+        return self.func(*args,**kwds)
 
     def __enter__(self):
+        suite =  RestartSuite(self)
+        _cur_restarts.push(suite,1)
+        return suite
+
+    def __exit__(self,exc_type,exc_value,traceback):
+        _cur_restarts.items().next().__exit__(exc_type,exc_value,traceback)
+
+
+class RestartSuite(object):
+    """Class holding a suite of restarts belonging to a common context.
+
+    The RestartSuite class is used to bundle individual Restart objects
+    into a set that is pushed/popped together.  It's also possible to
+    add and remove individual restarts from a suite dynamically, allowing
+    them to be defined inline using decorator syntax.
+    """
+
+    def __init__(self,*restarts):
+        self.restarts = []
+        for r in restarts:
+            if isinstance(r,RestartSuite):
+                for r2 in r.restarts:
+                    self.restarts.append(r2)
+            elif isinstance(r,Restart):
+                self.restarts.append(r)
+            else:
+                self.restarts.append(Restart(r))
+
+    def add_restart(self,func=None,name=None):
+        """Add the given function as a restart to this suite.
+
+        If the 'name' keyword argument is given, that will be used instead
+        of the name of the function.  The following are all equivalent:
+
+            def my_restart():
+                pass
+            r.add_restart(Restart(my_restart,"skipit"))
+
+            @r.add_restart(name="skipit")
+            def my_restart():
+                pass
+
+            @r.add_restart
+            def skipit():
+                pass
+
+        """
+        def do_add_restart(func):
+            if isinstance(func,Restart):
+                r = func
+            else:
+                r = Restart(func,name)
+            self.restarts.append(r)
+            return func
+        if func is None:
+            return do_add_restart
+        else:
+            return do_add_restart(func)
+
+    def del_restart(self,restart):
+        """Remove the given restart from this suite.
+
+        The restart can be specified as a Restart instance, function or name.
+        """
+        to_del = []
+        for r in self.restarts:
+            if r is restart or r.func is restart or r.name == restart:
+                to_del.append(r)
+        for r in to_del:
+            self.restarts.remove(r)
+
+    def __call__(self,func,*args,**kwds):
+        _cur_calls.push((self,func,args,kwds))
         try:
-            restarts = _stack.restarts
-        except AttributeError:
-            _stack.restarts = restarts = []
-        restarts.append(self)
+            return func(*args,**kwds)
+        except Exception, err:
+            try:
+                _invoke_cur_handlers(err)
+            except InvokeRestart, e:
+                if e.restart in self.restarts:
+                    val = e.invoke()
+                    if val is not _NoValue:
+                        return val
+                raise
+            else:
+                raise
+        finally:
+            _cur_calls.pop()
+
+    def __enter__(self):
+        _cur_restarts.push(self,1)
         return self
 
     def __exit__(self,exc_type,exc_value,traceback):
         try:
             if exc_type is not None:
-                _invoke_handlers(exc_value)
-                if _stack.invoked is self:
-                    _stack.invoked = None
-                    return True
+                if exc_type is InvokeRestart:
+                    for r in self.restarts:
+                        if exc_value.restart is r:
+                            exc_value.invoke()
+                            return True
+                    else:
+                        return False
                 else:
-                    return False
+                    try:
+                        _invoke_cur_handlers(exc_value)
+                    except InvokeRestart, e:
+                        for r in self.restarts:
+                            if e.restart is r:
+                                e.invoke()
+                                return True
+                        else:
+                            raise
+                    else:
+                        return False
         finally:
-            _stack.restarts.pop()
+            _cur_restarts.pop()
+
+#  Convenience name for accessing RestartSuite class.
+restarts = RestartSuite
+
+
+def find_restart(name):
+    """Find a defined restart with the given name.
+
+    If no such restart is found then None is returned.
+    """
+    for suite in _cur_restarts.items():
+        for restart in suite.restarts:
+            if restart.name == name:
+                return restart
+    return None
+
+
+
+def invoke(func,*args,**kwds):
+    """Invoke the given function, or return a value from a restart.
+
+    This function can be used to invoke a function or callable object within
+    the current restart context.  If the function runs to completion its
+    result is returned.  If an error occurrs, the handlers are executed and
+    the result from any invoked restart becomes the return value of this
+    function.
+
+    The make a restart that does not trigger a return from invoke(), it
+    should return the special object _NoValue.
+    """
+    _cur_calls.push((invoke,func,args,kwds))
+    try:
+        return func(*args,**kwds)
+    except Exception, err:
+        try:
+            _invoke_cur_handlers(err)
+        except InvokeRestart, e:
+            val = e.invoke()
+            if val is not _NoValue:
+                return val
+            else:
+                raise
+        else:
+            raise
+    finally:
+        _cur_calls.pop()
 
 
 class Handler(object):
@@ -251,9 +416,9 @@ class Handler(object):
     """
 
     def __init__(self,exc_type,func,*args,**kwds):
-        """Handler object initialiser.
+        """Handler object initializer.
 
-        Handlers must be initialised with an exception type (or tuple of
+        Handlers must be initialized with an exception type (or tuple of
         types) and a function to be executed when such errors occur.  If
         the given function is a string, it names a restart that will be
         invoked immediately on error.
@@ -267,279 +432,112 @@ class Handler(object):
         self.kwds = kwds
 
     def handle_error(self,e):
+        """Invoke this handler on the given error.
+
+        This is a simple wrapper method to implement the shortcut syntax of
+        passing the name of a restart directly into the handler.
+        """
         if isinstance(e,self.exc_type):
             if isinstance(self.func,basestring):
-                invoke_restart(self.func,*self.args,**self.kwds)
+                raise InvokeRestart(self.func,*self.args,**self.kwds)
             else:
                 self.func(e,*self.args,**self.kwds)
 
     def __enter__(self):
-        try:
-            handlers = _stack.handlers
-        except AttributeError:
-            _stack.handlers = handlers = []
-        handlers.append(self)
+        _cur_handlers.push(self,1)
         return self
 
     def __exit__(self,exc_type,exc_value,traceback):
-        _stack.handlers.pop()
+        _cur_handlers.pop()
 
 
-def invoke(func,*args,**kwds):
-    """Invoke the given function, or return a value from a restart.
+class HandlerSuite(object):
+    """Class to easily combine multiple handlers into a single context.
 
-    This function can be used to invoke a function or callable object within
-    the current restart context.  If the function runs to completion its
-    result is returned.  If an error occurres, the handlers are executed and
-    the result from any invoked restart becomes the return value of this
-    function.
-
-    The make a restart that does not trigger a return from invoke(), it
-    should return the special object _NoValue.
+    HandleSuite objects represent a set of Handlers that are pushed/popped
+    as a group.  The suite can also have handlers dynamically added or removed,
+    allowing then to be defined in-line using decorator syntax.
     """
-    try:
-        calls = _stack.calls
-    except AttributeError:
-        _stack.calls = calls = []
-    calls.append((func,args,kwds))
-    try:
-        return func(*args,**kwds)
-    except Exception, e:
-        _invoke_handlers(e)
-        invoked = _stack.invoked
-        if invoked is not None and invoked.value is not _NoValue:
-            _stack.invoked = None
-            return invoked.value
-        else:
-            raise
-    finally:
-        calls.pop()
-
-
-def _invoke_handlers(err):
-    """Invoke any defined handlers for the given error.
-
-    If _stack.invoked is already set to a restart, this function will
-    return immediately.  Otherwise it will invoke each handler in turn.
-    If a handler invokes a restart, _stack.invoked is set to that restart
-    and the function exits.
-    """
-    try:
-        invoked = _stack.invoked
-    except AttributeError:
-        _stack.invoked = invoked = None
-    if invoked is None:
-        try:
-            handlers = _stack.handlers
-        except AttributeError:
-            pass
-        else:
-            for handler in reversed(handlers):
-                try:
-                    handler.handle_error(err)
-                except RestartInvoked, e:
-                    _stack.invoked = e.restart
-                    break
-
-
-def find_restart(name):
-    """Find a defined restart with the given name.
-
-    If no such restart is found then MissingRestartError is raised.
-    """
-    try:
-        restarts = _stack.restarts
-    except AttributeError:
-        raise MissingRestartError(name)
-    else:
-        for restart in reversed(restarts):
-            if restart.name == name:
-                return restart
-        raise MissingRestartError(name)
-
-
-def invoke_restart(name,*args,**kwds):
-    """Invoke the named restart with the given arguments.
-
-    If such a restart is defined then RestartInvoked will be raised;
-    otherwise RestartError is raised.
-    """
-    find_restart(name).invoke(*args,**kwds)
-
-
-def maybe_invoke_restart(name,*args,**kwds):
-    """Invoke the named restart with the given arguments, if it exists.
-
-    If such a restart is defined then RestartInvoked will be raised;
-    otherwise the function exits silently.
-    """
-    try:
-        find_restart(name).invoke(*args,**kwds)
-    except MissingRestartError:
-        pass
-
-
-
-class restarts(Restart):
-    """Class to easily combine multiple restarts into a single context."""
-
-    def __init__(self,*restarts):
-        self.restarts = [Restart(r) for r in restarts]
-        self.name = None
-
-    class _enter_descriptor(object):
-        def __get__(self,obj,cls):
-            if obj is None:
-                return cls.__enter_class__
-            else:
-                return obj.__enter_instance__
-    __enter__ = _enter_descriptor()
-
-    class _exit_descriptor(object):
-        def __get__(self,obj,cls):
-            if obj is None:
-                return cls.__exit_class__
-            else:
-                return obj.__exit_instance__
-    __exit__ = _exit_descriptor()
-
-    @classmethod
-    def __enter_class__(cls):
-        inst = cls()
-        try:
-            restarts = _stack.restarts
-        except AttributeError:
-            _stack.restarts = restarts = []
-        restarts.append(inst)
-        return inst.__enter__()
-
-    @classmethod
-    def __exit_class__(cls,*args):
-        _stack.restarts[-1].__exit__(*args)
-
-    @classmethod
-    def add(cls,func):
-        r = Restart(func)
-        for inst in reversed(_stack.restarts):
-            if isinstance(inst,cls):
-                inst.restarts.append(r)
-                r.__enter__()
-                return func
-        raise RestartError("no instance of restarts() found on stack")
-
-    def __enter_instance__(self):
-        try:
-            restarts = _stack.restarts
-        except AttributeError:
-            _stack.restarts = restarts = []
-        for r in self.restarts:
-            restarts.append(r)
-        return self
-
-    def __exit_instance__(self,exc_type,exc_value,traceback):
-        try:
-            if exc_type is not None:
-                _invoke_handlers(exc_value)
-                for r in self.restarts:
-                    if _stack.invoked is r:
-                        _stack.invoked = None
-                        return True
-                else:
-                    return False
-        finally:
-            for r in self.restarts:
-                _stack.restarts.pop()
-
-        
-
-class handlers(Handler):
-    """Class to easily combine multiple handlers into a single context."""
 
     def __init__(self,*handlers):
         self.handlers = ([Handler(*h) for h in handlers])
 
     def handle_error(self,e):
-        pass
+        for h in self.handlers:
+            h.handle_error(e)
 
-    class _enter_descriptor(object):
-        def __get__(self,obj,cls):
-            if obj is None:
-                return cls.__enter_class__
-            else:
-                return obj.__enter_instance__
-    __enter__ = _enter_descriptor()
+    def __enter__(self):
+        _cur_handlers.push(self,1)
+        return self
 
-    class _exit_descriptor(object):
-        def __get__(self,obj,cls):
-            if obj is None:
-                return cls.__exit_class__
-            else:
-                return obj.__exit_instance__
-    __exit__ = _exit_descriptor()
+    def __exit__(self,exc_type,exc_info,traceback):
+        _cur_handlers.pop()
 
-    @classmethod
-    def __enter_class__(cls):
-        inst = cls()
-        inst = cls()
-        try:
-            handlers = _stack.handlers
-        except AttributeError:
-            _stack.handlers = handlers = []
-        handlers.append(inst)
-        return inst.__enter__()
+    def add_handler(self,func=None,exc_type=None):
+        """Add the given function as a handler to this suite.
 
-    @classmethod
-    def __exit_class__(cls,*args):
-        _stack.handlers[-1].__exit__(*args)
+        If the given function is already a Handler object, it is used
+        directly.  Otherwise, if the exc_type keyword argument is given,
+        a Handler is created for that exception type.  Finally, if exc_type
+        if not specified then is is looked up using the name of the given
+        function.  Thus the following are all equivalent:
 
-    @staticmethod
-    def _load_name(func,name):
-        try:
-            try:
-                idx = func.func_code.co_cellvars.index(name)
-            except ValueError:
-                try:
-                    idx = func.func_code.co_freevars.index(name)
-                    idx -= len(func.func_code.co_cellvars)
-                except ValueError:
-                    raise NameError(name)
-            return func.func_closure[idx].cell_contents
-        except NameError:
-            try:
-                try:
-                    return func.func_globals[name]
-                except KeyError:
-                    return __builtins__[name]
-            except KeyError:
-                raise NameError(name)
+            def handle_IOError(e):
+                pass
+            h.add_handler(Handler(IOError,handle_IOError))
 
-    @classmethod
-    def add(cls,func=None,exc_type=None):
-        def add_handler(func):
-            if exc_type is None:
-                h = Handler(cls._load_name(func,func.func_name),func)
+            @h.add_handler(exc_type=IOError):
+            def handle_IOError(e):
+                pass
+
+            @h.add_handler
+            def IOError(e):
+                pass
+
+        """
+        def do_add_handler(func):
+            if isinstance(func,Handler):
+                h = func
+            elif exc_type is None:
+                h = Handler(_load_name_in_scope(func,func.func_name),func)
             else:
                 h = Handler(exc_type,func)
-            for inst in reversed(_stack.handlers):
-                if isinstance(inst,cls):
-                    inst.handlers.append(h)
-                    h.__enter__()
-                    return func
-            raise RestartError("no instance of handlers() found on stack")
+            self.handlers.append(h)
+            return func
         if func is None:
-            return add_handler
+            return do_add_handler
         else:
-            return add_handler(func)
+            return do_add_handler(func)
 
-    def __enter_instance__(self):
-        for h in self.handlers:
-            h.__enter__()
+    def del_handler(self,handler):
+        """Remove any handlers matching the given value from the suite.
 
-    def __exit_instance__(self,exc_type,exc_info,traceback):
-        retval = None
+        The 'handler' argument can be a Handler instance, function or
+        exception type.
+        """
+        to_del = []
         for h in self.handlers:
-            retval = retval or h.__exit__(exc_type,exc_info,traceback)
-        return retval
+            if h is handler or h.func is handler or h.exc_type is handler:
+                to_del.append(h)
+        for h in to_del:
+            self.handlers.remove(h)
+
+#  Convenience name for accessing HandlerSuite class.
+handlers = HandlerSuite
+
+
+def _invoke_cur_handlers(err):
+    """Invoke any defined handlers for the given error.
+
+    Each handler is invoked in turn.  In the usual case one of the handlers
+    will raise InvokeRestart and control will be transferred back to the
+    function that raised the error.  If no handler invokes a restart then
+    this function will exit normally; calling code should re-raise the
+    original error.
+    """
+    for handler in _cur_handlers.items():
+        handler.handle_error(err)
+
 
 
 def use_value(value):
@@ -556,7 +554,31 @@ def skip():
 
 def retry():
     """Pre-defined restart that retries the most-recently-invoked function."""
-    (func,args,kwds) = _stack.calls[-1]
+    (invoke,func,args,kwds) = _cur_calls.items().next()
     return invoke(func,*args,**kwds)
 
+
+def _load_name_in_scope(func,name):
+    """Get the value of variable 'name' as seen in scope of given function.
+
+    If no such variable is found in the function's scope, NameError is raised.
+    """
+    try:
+        try:
+            idx = func.func_code.co_cellvars.index(name)
+        except ValueError:
+            try:
+                idx = func.func_code.co_freevars.index(name)
+                idx -= len(func.func_code.co_cellvars)
+            except ValueError:
+                raise NameError(name)
+        return func.func_closure[idx].cell_contents
+    except NameError:
+        try:
+           try:
+                return func.func_globals[name]
+           except KeyError:
+                return __builtins__[name]
+        except KeyError:
+             raise NameError(name)
 

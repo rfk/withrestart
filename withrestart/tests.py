@@ -17,7 +17,7 @@ class TestRestarts(unittest.TestCase):
 
     def test_basic(self):
         def handle_TypeError(e):
-            invoke_restart("use_value",7)
+            raise InvokeRestart("use_value",7)
         with Handler(TypeError,handle_TypeError):
             with Restart(use_value):
                 self.assertEquals(div(6,3),2)
@@ -26,11 +26,11 @@ class TestRestarts(unittest.TestCase):
 
     def test_multiple(self):
         def handle_TE(e):
-            invoke_restart("use_value",7)
+            raise InvokeRestart("use_value",7)
         def handle_ZDE(e):
-            invoke_restart("raise_error",RuntimeError)
+            raise InvokeRestart("raise_error",RuntimeError)
         with handlers((TypeError,handle_TE),(ZeroDivisionError,handle_ZDE)):
-            with restarts(use_value,raise_error):
+            with restarts(use_value,raise_error) as invoke:
                 self.assertEquals(div(6,3),2)
                 self.assertEquals(invoke(div,6,3),2)
                 self.assertEquals(invoke(div,6,"2"),7)
@@ -38,7 +38,7 @@ class TestRestarts(unittest.TestCase):
 
     def test_nested(self):
         with Handler(TypeError,"use_value",7):
-            with restarts(use_value):
+            with restarts(use_value) as invoke:
                 self.assertEquals(div(6,3),2)
                 self.assertEquals(invoke(div,6,3),2)
                 self.assertEquals(invoke(div,6,"2"),7)
@@ -48,11 +48,14 @@ class TestRestarts(unittest.TestCase):
                 self.assertRaises(ZeroDivisionError,invoke,div,6,0)
                 with handlers((ZeroDivisionError,"raise_error",RuntimeError)):
                     self.assertRaises(MissingRestartError,invoke,div,6,0)
-                    with Restart(raise_error):
+                    with restarts(raise_error,invoke) as invoke:
                         self.assertEquals(div(6,3),2)
                         self.assertEquals(invoke(div,6,3),2)
                         self.assertEquals(invoke(div,6,"2"),7)
                         self.assertRaises(RuntimeError,invoke,div,6,0)
+                    self.assertRaises(MissingRestartError,invoke,div,6,0)
+                self.assertRaises(ZeroDivisionError,invoke,div,6,0)
+                self.assertEquals(invoke(div,6,"2"),7)
 
 
     def test_skip(self):
@@ -63,7 +66,7 @@ class TestRestarts(unittest.TestCase):
         def aggregate(items):
             total = 0
             for i in items:
-                with restarts(skip,use_value):
+                with restarts(skip,use_value) as invoke:
                     total += invoke(calculate,i)
             return total
         self.assertEquals(aggregate(range(6)),sum(range(6)))
@@ -75,7 +78,7 @@ class TestRestarts(unittest.TestCase):
 
     def test_threading(self):
         def calc(a,b):
-            with restarts(use_value):
+            with restarts(use_value) as invoke:
                 return invoke(div,a,b)
         evt1 = threading.Event()
         evt2 = threading.Event()
@@ -100,14 +103,16 @@ class TestRestarts(unittest.TestCase):
                 self.assertRaises(TypeError,calc,6,"2")
                 evt1.wait()
                 self.assertRaises(TypeError,calc,6,"2")
-                with Restart(raise_error):
-                    self.assertRaises(TypeError,calc,6,"2")
-                    with Handler(TypeError,"raise_error",ValueError):
-                        self.assertRaises(ValueError,calc,6,"2")
-                        evt2.set()
-                        evt3.wait()
-                        self.assertRaises(ValueError,calc,6,"2")
-                    self.assertRaises(TypeError,calc,6,"2")
+                def calc2(a,b):
+                    with Restart(raise_error) as invoke:
+                        return invoke(calc,a,b)
+                self.assertRaises(TypeError,calc2,6,"2")
+                with Handler(TypeError,"raise_error",ValueError):
+                    self.assertRaises(ValueError,calc2,6,"2")
+                    evt2.set()
+                    evt3.wait()
+                    self.assertRaises(ValueError,calc2,6,"2")
+                self.assertRaises(TypeError,calc2,6,"2")
                 self.assertRaises(TypeError,calc,6,"2")
             except Exception, e:
                 evt2.set()
@@ -122,26 +127,31 @@ class TestRestarts(unittest.TestCase):
             raise e
 
     def test_inline_definitions(self):
-        with handlers:
-            @handlers.add
+        with handlers() as h:
+            @h.add_handler
             def TypeError(e):
-                invoke_restart("my_use_value",7)
-            with restarts:
-                @restarts.add
+                raise InvokeRestart("my_use_value",7)
+            with restarts() as invoke:
+                @invoke.add_restart
                 def my_use_value(v):
                     return v
                 self.assertEquals(div(6,3),2)
                 self.assertEquals(invoke(div,6,3),2)
                 self.assertEquals(invoke(div,6,"2"),7)
                 self.assertRaises(ZeroDivisionError,invoke,div,6,0)
-                @restarts.add
-                def my_raise_error(e):
+                @invoke.add_restart(name="my_raise_error")
+                def my_raise_error_restart(e):
                     raise e
                 self.assertRaises(ZeroDivisionError,invoke,div,6,0)
-                @handlers.add(exc_type=ZeroDivisionError)
+                @h.add_handler(exc_type=ZeroDivisionError)
                 def handle_ZDE(e):
-                    invoke_restart("my_raise_error",RuntimeError)
+                    raise InvokeRestart("my_raise_error",RuntimeError)
                 self.assertRaises(RuntimeError,invoke,div,6,0)
+                invoke.del_restart("my_raise_error")
+                self.assertRaises(MissingRestartError,invoke,div,6,0)
+                h.del_handler(handle_ZDE)
+                self.assertRaises(ZeroDivisionError,invoke,div,6,0)
+
 
     def test_retry(self):
         call_count = {}
@@ -157,14 +167,37 @@ class TestRestarts(unittest.TestCase):
         self.assertRaises(ValueError,callit,2)
         self.assertEquals(callit(2),2)
         errors = []
-        with handlers:
-            @handlers.add(exc_type=ValueError)
+        with handlers() as h:
+            @h.add_handler(exc_type=ValueError)
             def OnValueError(e):
                 errors.append(e)
-                invoke_restart("retry")
-            with restarts(retry):
+                raise InvokeRestart("retry")
+            with restarts(retry) as invoke:
                 self.assertEquals(invoke(callit,3),3)
         self.assertEquals(len(errors),3)
+
+ 
+    def test_generators(self):
+        def if_not_seven(i):
+             if i == 7:
+                raise ValueError("can't use 7")
+             return i
+        def check_items(items):
+            for i in items:
+                with restarts(skip,use_value) as invoke:
+                    yield invoke(if_not_seven,i)
+        self.assertEquals(sum(check_items(range(6))),sum(range(6)))
+        self.assertRaises(ValueError,sum,check_items(range(8)))
+        with Handler(ValueError,"skip"):
+            self.assertEquals(sum(check_items(range(8))),sum(range(8))-7)
+            with Handler(ValueError,"use_value",2):
+                self.assertEquals(sum(check_items(range(8))),sum(range(8))-7+2)
+            #  Make sure that the restarts inside the suspended generator
+            #  are not visible outside it.
+            g = check_items(range(8))
+            self.assertEquals(g.next(),0)
+            self.assertEquals(find_restart("skip"),None)
+            g.close()
 
 
     def test_README(self):

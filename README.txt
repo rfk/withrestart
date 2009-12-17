@@ -2,7 +2,7 @@
 
   withrestart:  structured error recovery using named restart functions
 
-This is a Pythonisation (lispers might rightly say "bastardisation") of the
+This is a Pythonisation (Lispers might rightly say "bastardisation") of the
 restart-based condition system of Common Lisp.  It's designed to make error
 recovery simpler and easier by removing the assumption that unhandled errors
 must be fatal.
@@ -24,11 +24,11 @@ to take corrective action and then resume execution of whatever function
 raised the error.
 
 For example, consider a function that reads the contents of all files from a 
-directory into a dictionary in memory::
+directory into a dict in memory::
 
    def readall(dirname):
        data = {}
-       for filename in os.listdir(readall):
+       for filename in os.listdir(dirname):
            filepath = os.path.join(dirname,filename)
            data[filename] = open(filepath).read()
        return data
@@ -41,7 +41,7 @@ some default contents?  Should a special sentinel value be placed in the
 data dictionary?  What value?  The readall() function does not have enough
 information to decide on an appropriate recovery strategy.
 
-Instead, readall() can provide the *infrastucture* for such recovery strategies
+Instead, readall() can provide the *infrastructure* for doing error recovery
 and leave the final decision up to the calling code.  The following definition
 uses three pre-defined restarts to let the calling code (a) skip the missing
 file completely, (2) retry the call to open() after taking some corrective
@@ -49,9 +49,9 @@ action, or (3) use some other value in place of the missing file::
 
    def readall(dirname):
        data = {}
-       for filename in os.listdir(readall):
+       for filename in os.listdir(dirname):
            filepath = os.path.join(dirname,filename)
-           with restarts(skip,retry,use_value):
+           with restarts(skip,retry,use_value) as invoke:
                data[filename] = invoke(open,filepath).read()
        return data
 
@@ -73,13 +73,18 @@ IOError instances and respond by invoking the "skip" restart point.  If this
 handler is invoked in response to an IOError, execution of the readall()
 function will continue immediately following the "with restarts(...)" block.
 
-Calling code that wanted to re-create the missing file would simply push
-a different error handler::
+Note that there is no way to achieve this skip-and-continue behaviour using an
+ordinary try-except block; by the time the IOError has propagated up to the
+concatenate() function for processing, all context from the execution of 
+readall() will have been unwound and cannot be resumed.
+
+Calling code that wanted to re-create the missing file would simply push a
+different error handler::
 
    def concatenate(dirname):
        def handle_IOError(e):
            open(e.filename,"w").write("MISSING")
-           invoke_restart("retry")
+           raise InvokeRestart("retry")
        with Handler(IOError,handle_IOError):
            data = readall(dirname)
        return "".join(data.itervalues())
@@ -92,23 +97,23 @@ to pass the required value to the "use_value" restart::
            def read():
                return "MISSING"
        def handle_IOError(e):
-           invoke_restart("use_value",MissingFile())
+           raise InvokeRestart("use_value",MissingFile())
        with Handler(IOError,handle_IOError):
            data = readall(dirname)
        return "".join(data.itervalues())
 
 
 By separating the low-level details of recovering from an error from the
-high-level stragegy of what action to take, it's possible to create quite
+high-level strategy of what action to take, it's possible to create quite
 powerful recovery mechanisms.
 
 While this module provides a handful of pre-built restarts, functions will
-usualy want to create their own.  This can be done by passing a callback
+usually want to create their own.  This can be done by passing a callback
 into the Restart object constructor::
 
    def readall(dirname):
        data = {}
-       for filename in os.listdir(readall):
+       for filename in os.listdir(dirname):
            filepath = os.path.join(dirname,filename)
            def log_error():
                print "an error occurred"
@@ -117,14 +122,14 @@ into the Restart object constructor::
        return data
 
 
-Or by using the @restarts.add decorator to define restarts inline::
+Or by using a decorator to define restarts inline::
 
    def readall(dirname):
        data = {}
-       for filename in os.listdir(readall):
+       for filename in os.listdir(dirname):
            filepath = os.path.join(dirname,filename)
-           with restarts:
-               @restarts.add
+           with restarts() as invoke:
+               @invoke.add_restart
                def log_error():
                    print "an error occurred"
                data[filename] = open(filepath).read()
@@ -133,11 +138,11 @@ Or by using the @restarts.add decorator to define restarts inline::
 Handlers can also be defined inline using a similar syntax::
 
    def concatenate(dirname):
-       with handlers:
-           @handlers.add
+       with handlers() as h:
+           @h.add_handler
            def IOError(e):
                open(e.filename,"w").write("MISSING")
-               invoke_restart("retry")
+               raise InvokeRestart("retry")
            data = readall(dirname)
        return "".join(data.itervalues())
 
