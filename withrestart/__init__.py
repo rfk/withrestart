@@ -169,7 +169,7 @@ _cur_handlers = CallStack()
 _cur_calls = CallStack()
 
 
-class _NoValue:
+class NoValue:
     """Sentinel class; an alternative to None."""
     pass
 
@@ -319,7 +319,7 @@ class RestartSuite(object):
             except InvokeRestart, e:
                 if e.restart in self.restarts:
                     val = e.invoke()
-                    if val is not _NoValue:
+                    if val is not NoValue:
                         return val
                 raise
             else:
