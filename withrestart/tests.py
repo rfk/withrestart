@@ -15,6 +15,12 @@ def div(a,b):
 class TestRestarts(unittest.TestCase):
     """Testcases for the "withrestart" module."""
 
+    def tearDown(self):
+        # Check that no stray frames exist in variou CallStacks
+        self.assertFalse(withrestart._cur_restarts._frame_stacks)
+        self.assertFalse(withrestart._cur_handlers._frame_stacks)
+        self.assertFalse(withrestart._cur_calls._frame_stacks)
+
     def test_basic(self):
         def handle_TypeError(e):
             raise InvokeRestart("use_value",7)

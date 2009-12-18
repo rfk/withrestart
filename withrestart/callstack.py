@@ -81,6 +81,8 @@ class CallStack(object):
                 if frame is None:
                     raise IndexError("stack is empty")
         frame_stack.pop()
+        if not frame_stack:
+            del self._frame_stacks[frame]
 
     def items(self):
         """Iterator over stack of items for current execution frame."""
