@@ -1,5 +1,10 @@
 
 
+v0.2.1:
+
+    * make CallStack drop references to stack frames once they have exited,
+      to avoid creating lots of uncollectable garbage.
+
 v0.2.0:
 
     * cleanly support yielding from within a restart context; previously
