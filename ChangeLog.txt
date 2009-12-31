@@ -1,5 +1,11 @@
 
 
+v0.2.2:
+
+    * implement the logic for "skip" restart by using an "ExitRestart"
+      exception rather than by detecting and returning "NoValue". I think
+      this makes the non-local control flow more explicit.
+
 v0.2.1:
 
     * make CallStack drop references to stack frames once they have exited,

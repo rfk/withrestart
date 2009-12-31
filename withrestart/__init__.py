@@ -174,11 +174,6 @@ _cur_handlers = CallStack()
 _cur_calls = CallStack()
 
 
-class NoValue:
-    """Sentinel class; an alternative to None."""
-    pass
-
-
 class RestartError(Exception):
     """Base class for all user-visible exceptions raised by this module."""
     pass
@@ -212,6 +207,21 @@ class InvokeRestart(Exception):
         return self.restart.invoke(*self.args,**self.kwds)
 
 
+class ExitRestart(Exception):
+    """Exception raised by restarts to immediately exit their context.
+
+    Restarts can raise ExitRestart to immediately transfer control to the
+    end of their execution context.  It's primarily used by the pre-defined
+    "skip" restart but others are welcome to use it for similar purposes.
+
+    This is used as a flow-control mechanism and should never be seen by
+    code outside this module.  It's purposely not a sublcass of RestartError;
+    you really shouldn't be catching it except under special circumstances.
+    """
+    def __init__(self,restart=None):
+        self.restart = restart
+
+
 class Restart(object):
     """Restart marker object.
 
@@ -240,7 +250,11 @@ class Restart(object):
             self.name = name
 
     def invoke(self,*args,**kwds):
-        return self.func(*args,**kwds)
+        try:
+            return self.func(*args,**kwds)
+        except ExitRestart, e:
+            e.restart = self
+            raise
 
     def __enter__(self):
         suite =  RestartSuite(self)
@@ -315,6 +329,11 @@ class RestartSuite(object):
             self.restarts.remove(r)
 
     def __call__(self,func,*args,**kwds):
+        """Invoke the given function in the context of this restart suite.
+
+        If a restart is invoked in response to an error, its return value
+        is used in place of the function call.
+        """
         _cur_calls.push((self,func,args,kwds))
         try:
             return func(*args,**kwds)
@@ -323,9 +342,7 @@ class RestartSuite(object):
                 _invoke_cur_handlers(err)
             except InvokeRestart, e:
                 if e.restart in self.restarts:
-                    val = e.invoke()
-                    if val is not NoValue:
-                        return val
+                    return e.invoke()
                 raise
             else:
                 raise
@@ -346,13 +363,23 @@ class RestartSuite(object):
                             return True
                     else:
                         return False
+                elif exc_type is ExitRestart:
+                    for r in self.restarts:
+                        if exc_value.restart is r:
+                            return True
+                    else:
+                        return False
                 else:
                     try:
                         _invoke_cur_handlers(exc_value)
                     except InvokeRestart, e:
                         for r in self.restarts:
                             if e.restart is r:
-                                e.invoke()
+                                try:
+                                    e.invoke()
+                                except ExitRestart, e:
+                                    if e.restart not in self.restarts:
+                                        raise
                                 return True
                         else:
                             raise
@@ -384,11 +411,8 @@ def invoke(func,*args,**kwds):
     This function can be used to invoke a function or callable object within
     the current restart context.  If the function runs to completion its
     result is returned.  If an error occurrs, the handlers are executed and
-    the result from any invoked restart becomes the return value of this
-    function.
-
-    The make a restart that does not trigger a return from invoke(), it
-    should return the special object NoValue.
+    the result from any invoked restart becomes the return value of the
+    function call.
     """
     _cur_calls.push((invoke,func,args,kwds))
     try:
@@ -397,11 +421,7 @@ def invoke(func,*args,**kwds):
         try:
             _invoke_cur_handlers(err)
         except InvokeRestart, e:
-            val = e.invoke()
-            if val is not NoValue:
-                return val
-            else:
-                raise
+            return e.invoke()
         else:
             raise
     finally:
@@ -555,7 +575,7 @@ def raise_error(error):
 
 def skip():
     """Pre-defined restart that skips to the end of the restart context."""
-    return NoValue
+    raise ExitRestart
 
 def retry():
     """Pre-defined restart that retries the most-recently-invoked function."""
