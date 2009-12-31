@@ -64,6 +64,30 @@ class TestRestarts(unittest.TestCase):
                 self.assertEquals(invoke(div,6,"2"),7)
 
 
+    def test_default_handlers(self):
+        with restarts(use_value) as invoke:
+            self.assertEquals(div(6,3),2)
+            self.assertEquals(invoke(div,6,3),2)
+            self.assertRaises(TypeError,invoke,div,6,"2")
+            invoke.default_handlers = Handler(TypeError,"use_value",7)
+            self.assertEquals(invoke(div,6,"2"),7)
+            with Handler(TypeError,"use_value",9):
+                self.assertEquals(invoke(div,6,"2"),9)
+            self.assertEquals(invoke(div,6,"2"),7)
+            self.assertRaises(ZeroDivisionError,invoke,div,6,0)
+            with handlers((ZeroDivisionError,"raise_error",RuntimeError)):
+                self.assertRaises(MissingRestartError,invoke,div,6,0)
+                with restarts(raise_error,invoke) as invoke:
+                    self.assertEquals(div(6,3),2)
+                    self.assertEquals(invoke(div,6,3),2)
+                    self.assertEquals(invoke(div,6,"2"),7)
+                    self.assertRaises(RuntimeError,invoke,div,6,0)
+                self.assertRaises(MissingRestartError,invoke,div,6,0)
+            self.assertRaises(ZeroDivisionError,invoke,div,6,0)
+            self.assertEquals(invoke(div,6,"2"),7)
+
+
+
     def test_skip(self):
         def calculate(i):
             if i == 7:
