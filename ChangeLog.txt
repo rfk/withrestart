@@ -2,12 +2,12 @@
 
 v0.2.2:
 
-    * implement the logic for "skip" restart by using an "ExitRestart"
-      exception rather than by detecting and returning "NoValue". I think
-      this makes the non-local control flow more explicit.
-    * add a "default_handlers" property to RestartSuite.  Setting this to a
-      Handler or HandlerSuite object will cause those handlers to be invoked
-      if control passes through all other handlers.
+    * implement logic for the "skip" restart by raising an ExitRestart
+      exception rather than by returning NoValue; this makes the non-local
+      control flow more explicit.
+    * add a "default_handlers" attribute to RestartSuite.  Setting this to a
+      Handler or HandlerSuite instance will cause those handlers to be invoked
+      if control passes cleanly through all other handlers.
 
 v0.2.1:
 

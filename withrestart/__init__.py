@@ -169,9 +169,9 @@ __version__ = "%d.%d.%d%s" % (__ver_major__,__ver_minor__,
 
 
 from withrestart.callstack import CallStack
-_cur_restarts = CallStack()
-_cur_handlers = CallStack()
-_cur_calls = CallStack()
+_cur_restarts = CallStack()  # per-frame active restarts
+_cur_handlers = CallStack()  # per-frame active handlers
+_cur_calls = CallStack()     # per-frame active function invocations
 
 
 class RestartError(Exception):
@@ -272,6 +272,10 @@ class RestartSuite(object):
     into a set that is pushed/popped together.  It's also possible to
     add and remove individual restarts from a suite dynamically, allowing
     them to be defined inline using decorator syntax.
+
+    If the attribute "default_handlers" is set to a Handler or HandlerSuite
+    instance, that instance will be invoked after invoking all registered
+    handlers; this could be useful for providing a sensible default behaviour.
     """
 
     def __init__(self,*restarts):
