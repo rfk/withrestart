@@ -276,6 +276,7 @@ class RestartSuite(object):
 
     def __init__(self,*restarts):
         self.restarts = []
+        self.default_handlers = None
         for r in restarts:
             if isinstance(r,RestartSuite):
                 for r2 in r.restarts:
@@ -339,7 +340,7 @@ class RestartSuite(object):
             return func(*args,**kwds)
         except Exception, err:
             try:
-                _invoke_cur_handlers(err)
+                self._invoke_handlers(err)
             except InvokeRestart, e:
                 if e.restart in self.restarts:
                     return e.invoke()
@@ -371,7 +372,7 @@ class RestartSuite(object):
                         return False
                 else:
                     try:
-                        _invoke_cur_handlers(exc_value)
+                        self._invoke_handlers(exc_value)
                     except InvokeRestart, e:
                         for r in self.restarts:
                             if e.restart is r:
@@ -387,6 +388,11 @@ class RestartSuite(object):
                         return False
         finally:
             _cur_restarts.pop()
+
+    def _invoke_handlers(self,e):
+        _invoke_cur_handlers(e)
+        if self.default_handlers is not None:
+            self.default_handlers.handle_error(e)
 
 #  Convenience name for accessing RestartSuite class.
 restarts = RestartSuite
