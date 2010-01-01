@@ -264,7 +264,7 @@ class TestRestarts(unittest.TestCase):
         updates it with the contents of withrestart.__doc__.
         """
         dirname = os.path.dirname
-        readme = os.path.join(dirname(dirname(__file__)),"README.txt")
+        readme = os.path.join(dirname(dirname(dirname(__file__))),"README.txt")
         if not os.path.isfile(readme):
             f = open(readme,"wb")
             f.write(withrestart.__doc__)
