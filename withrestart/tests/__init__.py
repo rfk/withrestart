@@ -247,15 +247,15 @@ class TestRestarts(unittest.TestCase):
         def assertOverheadLessThan(scale,args):
             t1 = dotimeit("test_tryexcept",args)
             t2 = dotimeit("test_restart",args)
-            print "TRYEXCEPT", t1
-            print "WITHRESTART", t2
+            #print "TRYEXCEPT", t1
+            #print "WITHRESTART", t2
             self.assertTrue(t1*scale > t2)
         #  Restarts not used
         assertOverheadLessThan(25,"4,4")
         #  Restarts not used
         assertOverheadLessThan(25,"100,100")
         #  Restarts used to return default value
-        assertOverheadLessThan(25,"7,0")
+        assertOverheadLessThan(30,"7,0")
 
 
 

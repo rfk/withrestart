@@ -154,6 +154,14 @@ Handlers can also be defined inline using a similar syntax::
 
 Now finally, a disclaimer.  I've never written any Common Lisp.  I've only read
 about the Common Lisp condition system and how awesome it is.  I'm sure there
-are many things that it can do that this module simply cannot.  Nevertheless,
-there's no shame in trying to pinch a good idea when you see one...
+are many things that it can do that this module simply cannot.  For example:
+
+  * Since this is built on top of a standard exception-throwing system, the
+    handlers can only be executed after the stack has been unwound to the
+    most recent restart context; in Common Lisp they're executed without
+    unwinding the stack at all.
+  * Since this is built on top of a standard exception-throwing system, it's
+    probably too heavyweight to use for generic condition signalling system.
+
+Nevertheless, there's no shame in pinching a good idea when you see one...
 

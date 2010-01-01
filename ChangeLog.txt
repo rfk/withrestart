@@ -1,5 +1,13 @@
 
 
+v0.2.3:
+
+    * speed up establishment of handlers and restarts, by not walking up the
+      call stack manually if it can be avoided.
+    * invoke default handlers only if no handler has been established.
+      This required some significant changes to how handlers are invoked,
+      but none of that should leak into the public API.
+
 v0.2.2:
 
     * implement logic for the "skip" restart by raising an ExitRestart

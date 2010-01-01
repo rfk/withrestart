@@ -154,14 +154,22 @@ Handlers can also be defined inline using a similar syntax::
 
 Now finally, a disclaimer.  I've never written any Common Lisp.  I've only read
 about the Common Lisp condition system and how awesome it is.  I'm sure there
-are many things that it can do that this module simply cannot.  Nevertheless,
-there's no shame in trying to pinch a good idea when you see one...
+are many things that it can do that this module simply cannot.  For example:
+
+  * Since this is built on top of a standard exception-throwing system, the
+    handlers can only be executed after the stack has been unwound to the
+    most recent restart context; in Common Lisp they're executed without
+    unwinding the stack at all.
+  * Since this is built on top of a standard exception-throwing system, it's
+    probably too heavyweight to use for generic condition signalling system.
+
+Nevertheless, there's no shame in pinching a good idea when you see one...
 
 """
 
 __ver_major__ = 0
 __ver_minor__ = 2
-__ver_patch__ = 2
+__ver_patch__ = 3
 __ver_sub__ = ""
 __version__ = "%d.%d.%d%s" % (__ver_major__,__ver_minor__,
                               __ver_patch__,__ver_sub__)
@@ -274,8 +282,8 @@ class RestartSuite(object):
     them to be defined inline using decorator syntax.
 
     If the attribute "default_handlers" is set to a Handler or HandlerSuite
-    instance, that instance will be invoked after invoking all registered
-    handlers; this could be useful for providing a sensible default behaviour.
+    instance, that instance will be invoked if no other handler has been 
+    established for the current exception type.
     """
 
     def __init__(self,*restarts):
@@ -397,9 +405,13 @@ class RestartSuite(object):
                 raise
 
     def _invoke_handlers(self,e):
-        _invoke_cur_handlers(e)
-        if self.default_handlers is not None:
-            self.default_handlers.handle_error(e)
+        handlers = find_handlers(e)
+        if handlers:
+            for handler in handlers:
+                handler.handle_error(e)
+        else:
+            if self.default_handlers is not None:
+                self.default_handlers.handle_error(e)
 
 #  Convenience name for accessing RestartSuite class.
 restarts = RestartSuite
@@ -432,7 +444,8 @@ def invoke(func,*args,**kwds):
         return func(*args,**kwds)
     except Exception, err:
         try:
-            _invoke_cur_handlers(err)
+            for handler in find_handlers(err):
+                handler.handle_error(err)
         except InvokeRestart, e:
             return e.invoke()
         else:
@@ -475,11 +488,10 @@ class Handler(object):
         This is a simple wrapper method to implement the shortcut syntax of
         passing the name of a restart directly into the handler.
         """
-        if isinstance(e,self.exc_type):
-            if isinstance(self.func,basestring):
-                raise InvokeRestart(self.func,*self.args,**self.kwds)
-            else:
-                self.func(e,*self.args,**self.kwds)
+        if isinstance(self.func,basestring):
+            raise InvokeRestart(self.func,*self.args,**self.kwds)
+        else:
+            self.func(e,*self.args,**self.kwds)
 
     def __enter__(self):
         _cur_handlers.push(self,1)
@@ -498,11 +510,18 @@ class HandlerSuite(object):
     """
 
     def __init__(self,*handlers):
-        self.handlers = ([Handler(*h) for h in handlers])
+        self.handlers = []
+        self.exc_type = ()
+        for h in handlers:
+            if isinstance(h,(Handler,HandlerSuite,)):
+                self._add_handler(h)
+            else:
+                self._add_handler(Handler(*h))
 
     def handle_error(self,e):
-        for h in self.handlers:
-            h.handle_error(e)
+        for handler in self.handlers:
+            if isinstance(e,handler.exc_type):
+                handler.handle_error(e)
 
     def __enter__(self):
         _cur_handlers.push(self,1)
@@ -514,11 +533,11 @@ class HandlerSuite(object):
     def add_handler(self,func=None,exc_type=None):
         """Add the given function as a handler to this suite.
 
-        If the given function is already a Handler object, it is used
-        directly.  Otherwise, if the exc_type keyword argument is given,
-        a Handler is created for that exception type.  Finally, if exc_type
-        if not specified then is is looked up using the name of the given
-        function.  Thus the following are all equivalent:
+        If the given function is already a Handler or HandlerSuite object,
+        it is used directory.  Otherwise, if the exc_type keyword argument
+        is given, a Handler is created for that exception type.  Finally,
+        if exc_type if not specified then is is looked up using the name of
+        the given function.  Thus the following are all equivalent:
 
             def handle_IOError(e):
                 pass
@@ -534,18 +553,31 @@ class HandlerSuite(object):
 
         """
         def do_add_handler(func):
-            if isinstance(func,Handler):
+            if isinstance(func,(Handler,HandlerSuite,)):
                 h = func
             elif exc_type is None:
                 h = Handler(_load_name_in_scope(func,func.func_name),func)
             else:
                 h = Handler(exc_type,func)
-            self.handlers.append(h)
+            self._add_handler(h)
             return func
         if func is None:
             return do_add_handler
         else:
             return do_add_handler(func)
+
+    def _add_handler(self,handler):
+        """Internal logic for adding a handler to the suite.
+
+        This appends the handler to self.handlers, and adjusts self.exc_type
+        to reflect the newly-handled exception types.
+        """
+        self.handlers.append(handler)
+        try:
+            new_types = iter(handler.exc_type)
+        except TypeError:
+            new_types = (handler.exc_type,)
+        self.exc_type = self.exc_type + new_types
 
     def del_handler(self,handler):
         """Remove any handlers matching the given value from the suite.
@@ -564,18 +596,17 @@ class HandlerSuite(object):
 handlers = HandlerSuite
 
 
-def _invoke_cur_handlers(err):
-    """Invoke any defined handlers for the given error.
+def find_handlers(err):
+    """Find the currently-established handlers for the given error.
 
-    Each handler is invoked in turn.  In the usual case one of the handlers
-    will raise InvokeRestart and control will be transferred back to the
-    function that raised the error.  If no handler invokes a restart then
-    this function will exit normally; calling code should re-raise the
-    original error.
+    This function returns a list of all handlers currently established for
+    the given error, in the order in which they should be invoked.
     """
+    handlers = []
     for handler in _cur_handlers.items():
-        handler.handle_error(err)
-
+        if isinstance(err,handler.exc_type):
+            handlers.append(handler)
+    return handlers
 
 
 def use_value(value):
