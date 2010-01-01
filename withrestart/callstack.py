@@ -14,8 +14,8 @@ module requires a working implementation of sys._getframe().
 
 
 try:
-    from sys import _getframe as _curframe
-    _curframe()
+    from sys import _getframe
+    _getframe()
 except Exception:
     try:
         import threading
@@ -27,12 +27,12 @@ except Exception:
                 return hash(self.thread)
             def __eq__(self,other):
                 return self.thread == other.thread
-        def _curframe():
+        def _getframe(n=0):
             return _DummyFrame()
     except Exception:
         class _DummyFrame:
             f_back = None
-        def _curframe():
+        def _getframe(n=0):
             return _DummyFrame
 
 
@@ -58,11 +58,8 @@ class CallStack(object):
         If 'offset' is given, it is the number of execution frames to skip
         backwards before adding the item.
         """
-        frame = _curframe()
         # We add one to the offset to account for this function call.
-        while offset > -1 and frame.f_back is not None:
-            frame = frame.f_back
-            offset -= 1
+        frame = _getframe(offset+1)
         try:
             frame_stack = self._frame_stacks[frame]
         except KeyError:
@@ -71,7 +68,7 @@ class CallStack(object):
 
     def pop(self):
         """Pop the top item from the stack for the current execution frame."""
-        frame = _curframe()
+        frame = _getframe(1)
         frame_stack = None
         while frame_stack is None:
             try:
@@ -86,7 +83,7 @@ class CallStack(object):
 
     def items(self):
         """Iterator over stack of items for current execution frame."""
-        frame = _curframe()
+        frame = _getframe(1)
         while frame is not None:
             try:
                 frame_stack = self._frame_stacks[frame]
