@@ -4,6 +4,7 @@ from __future__ import with_statement
 import os
 import unittest
 import threading
+import timeit
 
 import withrestart
 from withrestart import *
@@ -87,7 +88,6 @@ class TestRestarts(unittest.TestCase):
             self.assertEquals(invoke(div,6,"2"),7)
 
 
-
     def test_skip(self):
         def calculate(i):
             if i == 7:
@@ -105,6 +105,7 @@ class TestRestarts(unittest.TestCase):
             self.assertEquals(aggregate(range(8)),sum(range(8)) - 7)
         with Handler(ValueError,"use_value",9):
             self.assertEquals(aggregate(range(8)),sum(range(8)) - 7 + 9)
+
 
     def test_threading(self):
         def calc(a,b):
@@ -155,6 +156,7 @@ class TestRestarts(unittest.TestCase):
         t2.join()
         for e in errors:
             raise e
+
 
     def test_inline_definitions(self):
         with handlers() as h:
@@ -228,6 +230,31 @@ class TestRestarts(unittest.TestCase):
             self.assertEquals(g.next(),0)
             self.assertEquals(find_restart("skip"),None)
             g.close()
+
+
+    def test_overhead(self):
+        """Test overhead in comparison to a standard try-except block.
+
+        For compatability with the "timeit" module, the "test_tryexcept"
+        and "test_retstart" functions used by this test are importable from
+        the separate sub-module withrestart.tests.overhead.
+        """
+        def dotimeit(name,args):
+            testcode = "%s(%s)" % (name,args,)
+            setupcode = "from withrestart.tests.overhead import %s" % (name,)
+            t = timeit.Timer(testcode,setupcode)
+            return min(t.repeat(number=10000))
+        def assertOverheadLessThan(scale,args):
+            t1 = dotimeit("test_tryexcept",args)
+            t2 = dotimeit("test_restart",args)
+            self.assertTrue(t1*scale > t2)
+        #  Restarts not used
+        assertOverheadLessThan(25,"4,4")
+        #  Restarts not used
+        assertOverheadLessThan(25,"100,100")
+        #  Restarts used to return default value
+        assertOverheadLessThan(25,"7,0")
+
 
 
     def test_README(self):
