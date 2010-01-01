@@ -364,7 +364,7 @@ class RestartSuite(object):
                 if exc_type is InvokeRestart:
                     for r in self.restarts:
                         if exc_value.restart is r:
-                            exc_value.invoke()
+                            self._invoke_restart(exc_value)
                             return True
                     else:
                         return False
@@ -380,11 +380,7 @@ class RestartSuite(object):
                     except InvokeRestart, e:
                         for r in self.restarts:
                             if e.restart is r:
-                                try:
-                                    e.invoke()
-                                except ExitRestart, e:
-                                    if e.restart not in self.restarts:
-                                        raise
+                                self._invoke_restart(e)
                                 return True
                         else:
                             raise
@@ -392,6 +388,13 @@ class RestartSuite(object):
                         return False
         finally:
             _cur_restarts.pop()
+
+    def _invoke_restart(self,r):
+        try:
+            r.invoke()
+        except ExitRestart, e:
+            if e.restart not in self.restarts:
+                raise
 
     def _invoke_handlers(self,e):
         _invoke_cur_handlers(e)
