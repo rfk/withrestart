@@ -28,6 +28,6 @@ setup(name=NAME,
       long_description=LONG_DESC,
       license=LICENSE,
       keywords=KEYWORDS,
-      packages=["withrestart"],
+      packages=["withrestart","withrestart.tests"],
      )
 
