@@ -2,9 +2,10 @@
 
 v0.2.3:
 
-    * speed up establishment of handlers and restarts, by not walking up the
-      call stack manually if it can be avoided.
-    * invoke default handlers only if no handler has been established.
+    * speed up establishment of handlers and restarts, by using _getframe(n)
+      instead of explicitly walking up the call stack.
+    * invoke default handlers only if no other handler has been established.
+      Previously they were invoked if no other handler invoked a restart.
       This required some significant changes to how handlers are invoked,
       but none of that should leak into the public API.
 
