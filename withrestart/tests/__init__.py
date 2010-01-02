@@ -17,7 +17,7 @@ class TestRestarts(unittest.TestCase):
     """Testcases for the "withrestart" module."""
 
     def tearDown(self):
-        # Check that no stray frames exist in variou CallStacks
+        # Check that no stray frames exist in various CallStacks
         self.assertFalse(withrestart._cur_restarts._frame_stacks)
         self.assertFalse(withrestart._cur_handlers._frame_stacks)
         self.assertFalse(withrestart._cur_calls._frame_stacks)
@@ -30,6 +30,7 @@ class TestRestarts(unittest.TestCase):
                 self.assertEquals(div(6,3),2)
                 self.assertEquals(invoke(div,6,3),2)
                 self.assertEquals(invoke(div,6,"2"),7)
+                self.assertRaises(ZeroDivisionError,invoke,div,6,0)
 
     def test_multiple(self):
         def handle_TE(e):
@@ -70,8 +71,10 @@ class TestRestarts(unittest.TestCase):
             self.assertEquals(div(6,3),2)
             self.assertEquals(invoke(div,6,3),2)
             self.assertRaises(TypeError,invoke,div,6,"2")
+            self.assertRaises(ZeroDivisionError,invoke,div,6,0)
             invoke.default_handlers = Handler(TypeError,"use_value",7)
             self.assertEquals(invoke(div,6,"2"),7)
+            self.assertRaises(ZeroDivisionError,invoke,div,6,0)
             with Handler(TypeError,"use_value",9):
                 self.assertEquals(invoke(div,6,"2"),9)
             self.assertEquals(invoke(div,6,"2"),7)
