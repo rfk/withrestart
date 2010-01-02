@@ -574,11 +574,10 @@ class HandlerSuite(object):
         to reflect the newly-handled exception types.
         """
         self.handlers.append(handler)
-        try:
-            new_types = iter(handler.exc_type)
-        except TypeError:
-            new_types = (handler.exc_type,)
-        self.exc_type = self.exc_type + new_types
+        if isinstance(handler.exc_type,tuple):
+            self.exc_type = self.exc_type + handler.exc_type
+        else:
+            self.exc_type = self.exc_type + (handler.exc_type,)
 
     def del_handler(self,handler):
         """Remove any handlers matching the given value from the suite.
