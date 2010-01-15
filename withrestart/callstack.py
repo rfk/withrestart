@@ -37,7 +37,7 @@ except Exception:
 
 
 class CallStack(object):
-    """Class managed per-call-stack context information.
+    """Class managing per-call-stack context information.
 
     Instances of this class can be used to manage a stack of addionnal
     information alongside the current execution stack.  They have the
