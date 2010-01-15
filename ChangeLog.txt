@@ -1,5 +1,10 @@
 
 
+v0.2.4:
+
+    * speed up invocation of functions within a restart context, by replacing
+      the _cur_calls CallStack with a custom control-flow exception.
+
 v0.2.3:
 
     * speed up establishment of handlers and restarts, by using _getframe(n)

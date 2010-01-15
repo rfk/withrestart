@@ -239,8 +239,8 @@ class TestRestarts(unittest.TestCase):
         """Test overhead in comparison to a standard try-except block.
 
         For compatability with the "timeit" module, the "test_tryexcept"
-        and "test_retstart" functions used by this test are importable from
-        the separate sub-module withrestart.tests.overhead.
+        and "test_restart" functions used by this test are importable from
+        the separate sub-module "withrestart.tests.overhead".
         """
         def dotimeit(name,args):
             testcode = "%s(%s)" % (name,args,)
@@ -250,15 +250,14 @@ class TestRestarts(unittest.TestCase):
         def assertOverheadLessThan(scale,args):
             t1 = dotimeit("test_tryexcept",args)
             t2 = dotimeit("test_restart",args)
-            #print "TRYEXCEPT", t1
-            #print "WITHRESTART", t2
+            print "%.4f / %.4f == %.4f" % (t2,t1,t2/t1)
             self.assertTrue(t1*scale > t2)
         #  Restarts not used
-        assertOverheadLessThan(25,"4,4")
+        assertOverheadLessThan(20,"4,4")
         #  Restarts not used
-        assertOverheadLessThan(25,"100,100")
+        assertOverheadLessThan(20,"100,100")
         #  Restarts used to return default value
-        assertOverheadLessThan(30,"7,0")
+        assertOverheadLessThan(27,"7,0")
 
 
 

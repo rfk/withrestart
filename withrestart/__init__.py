@@ -179,11 +179,15 @@ __version__ = "%d.%d.%d%s" % (__ver_major__,__ver_minor__,
 from withrestart.callstack import CallStack
 _cur_restarts = CallStack()  # per-frame active restarts
 _cur_handlers = CallStack()  # per-frame active handlers
-_cur_calls = CallStack()     # per-frame active function invocations
 
 
 class RestartError(Exception):
     """Base class for all user-visible exceptions raised by this module."""
+    pass
+
+
+class ControlFlowException(Exception):
+    """Base class for all control-flow exceptions used by this module."""
     pass
 
 
@@ -195,7 +199,7 @@ class MissingRestartError(RestartError):
         return "No restart named '%s' has been defined" % (self.name,)
 
 
-class InvokeRestart(Exception):
+class InvokeRestart(ControlFlowException):
     """Exception raised by handlers to invoke a selected restart.
 
     This is used as a flow-control mechanism and should never be seen by
@@ -212,10 +216,11 @@ class InvokeRestart(Exception):
         self.kwds = kwds
 
     def invoke(self):
+        """Convenience methods for invoking the selected restart."""
         return self.restart.invoke(*self.args,**self.kwds)
 
 
-class ExitRestart(Exception):
+class ExitRestart(ControlFlowException):
     """Exception raised by restarts to immediately exit their context.
 
     Restarts can raise ExitRestart to immediately transfer control to the
@@ -228,6 +233,22 @@ class ExitRestart(Exception):
     """
     def __init__(self,restart=None):
         self.restart = restart
+
+
+class RetryLastCall(ControlFlowException):
+    """Exception raised by restarts to re-execute the last function call.
+
+    Restarts can raise RetryLastCall to immediately re-execute the last
+    function invoked within a restart context.  It's primarily used by
+    the pre-defined "retry" restart but others are welcome to use it for
+    similar purposes.
+
+    This is used as a flow-control mechanism and should never be seen by
+    code outside this module.  It's purposely not a sublcass of RestartError;
+    you really shouldn't be catching it except under special circumstances.
+    """
+    pass
+
 
 
 class Restart(object):
@@ -258,6 +279,11 @@ class Restart(object):
             self.name = name
 
     def invoke(self,*args,**kwds):
+        """Invoke this restart with the given arguments.
+
+        This wrapper method also maintains some internal state for use by
+        the restart-handling machinery.
+        """
         try:
             return self.func(*args,**kwds)
         except ExitRestart, e:
@@ -347,7 +373,6 @@ class RestartSuite(object):
         If a restart is invoked in response to an error, its return value
         is used in place of the function call.
         """
-        _cur_calls.push((self,func,args,kwds))
         try:
             return func(*args,**kwds)
         except Exception, err:
@@ -355,12 +380,13 @@ class RestartSuite(object):
                 self._invoke_handlers(err)
             except InvokeRestart, e:
                 if e.restart in self.restarts:
-                    return e.invoke()
+                    try:
+                        return e.invoke()
+                    except RetryLastCall:
+                        return self(func,*args,**kwds)
                 raise
             else:
                 raise
-        finally:
-            _cur_calls.pop()
 
     def __enter__(self):
         _cur_restarts.push(self,1)
@@ -372,8 +398,7 @@ class RestartSuite(object):
                 if exc_type is InvokeRestart:
                     for r in self.restarts:
                         if exc_value.restart is r:
-                            self._invoke_restart(exc_value)
-                            return True
+                            return self._invoke_restart(exc_value)
                     else:
                         return False
                 elif exc_type is ExitRestart:
@@ -388,8 +413,7 @@ class RestartSuite(object):
                     except InvokeRestart, e:
                         for r in self.restarts:
                             if e.restart is r:
-                                self._invoke_restart(e)
-                                return True
+                                return self._invoke_restart(e)
                         else:
                             raise
                     else:
@@ -403,6 +427,9 @@ class RestartSuite(object):
         except ExitRestart, e:
             if e.restart not in self.restarts:
                 raise
+        except RetryLastCall:
+            return False
+        return True
 
     def _invoke_handlers(self,e):
         handlers = find_handlers(e)
@@ -440,7 +467,6 @@ def invoke(func,*args,**kwds):
     the result from any invoked restart becomes the return value of the
     function call.
     """
-    _cur_calls.push((invoke,func,args,kwds))
     try:
         return func(*args,**kwds)
     except Exception, err:
@@ -448,11 +474,12 @@ def invoke(func,*args,**kwds):
             for handler in find_handlers(err):
                 handler.handle_error(err)
         except InvokeRestart, e:
-            return e.invoke()
+            try:
+                return e.invoke()
+            except RetryLastCall:
+                return invoke(func,*args,**kwds)
         else:
             raise
-    finally:
-        _cur_calls.pop()
 
 
 class Handler(object):
@@ -623,8 +650,7 @@ def skip():
 
 def retry():
     """Pre-defined restart that retries the most-recently-invoked function."""
-    (invoke,func,args,kwds) = _cur_calls.items().next()
-    return invoke(func,*args,**kwds)
+    raise RetryLastCall
 
 
 def _load_name_in_scope(func,name):
