@@ -52,6 +52,9 @@ class CallStack(object):
     def __init__(self):
         self._frame_stacks = {}
 
+    def __len__(self):
+        return len(self._frame_stacks)
+
     def push(self,item,offset=0):
         """Push the given item onto the stack for current execution frame.
 

@@ -18,9 +18,8 @@ class TestRestarts(unittest.TestCase):
 
     def tearDown(self):
         # Check that no stray frames exist in various CallStacks
-        self.assertFalse(withrestart._cur_restarts._frame_stacks)
-        self.assertFalse(withrestart._cur_handlers._frame_stacks)
-        self.assertFalse(withrestart._cur_calls._frame_stacks)
+        self.assertEquals(len(withrestart._cur_restarts),0)
+        self.assertEquals(len(withrestart._cur_handlers),0)
 
     def test_basic(self):
         def handle_TypeError(e):
