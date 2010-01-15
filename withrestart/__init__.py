@@ -279,6 +279,11 @@ class Restart(object):
             self.name = name
 
     def invoke(self,*args,**kwds):
+        """Invoke this restart with the given arguments.
+
+        This wrapper method also maintains some internal state for use by
+        the restart-handling machinery.
+        """
         try:
             return self.func(*args,**kwds)
         except ExitRestart, e:
