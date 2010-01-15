@@ -438,7 +438,8 @@ class RestartSuite(object):
                 handler.handle_error(e)
         else:
             if self.default_handlers is not None:
-                self.default_handlers.handle_error(e)
+                if isinstance(e,self.default_handlers.exc_type):
+                    self.default_handlers.handle_error(e)
 
 #  Convenience name for accessing RestartSuite class.
 restarts = RestartSuite
