@@ -20,7 +20,6 @@ class TestRestarts(unittest.TestCase):
         # Check that no stray frames exist in various CallStacks
         self.assertFalse(withrestart._cur_restarts._frame_stacks)
         self.assertFalse(withrestart._cur_handlers._frame_stacks)
-        self.assertFalse(withrestart._cur_calls._frame_stacks)
 
     def test_basic(self):
         def handle_TypeError(e):
