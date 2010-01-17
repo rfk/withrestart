@@ -12,6 +12,7 @@ module requires a working implementation of sys._getframe().
  
 """
 
+import sys
 
 try:
     from sys import _getframe
@@ -36,6 +37,26 @@ except Exception:
             return _DummyFrame
 
 
+def enable_psyco_support():
+    """Enable support for psyco's simulated frame objects.
+
+    This function patches psyco's simulated frame objects to be usable
+    as dictionary keys, and switches internal use of _getframe() to use
+    the version provided by psyco.
+    """
+    global _getframe
+    import psyco.support
+    psyco.support.PythonFrame.__eq__ = lambda s,o: s._frame == o._frame
+    psyco.support.PythonFrame.__hash__ = lambda self: hash(self._frame)
+    psyco.support.PsycoFrame.__eq__ = lambda s,o: s._tag[2] == o._tag[2]
+    psyco.support.PsycoFrame.__hash__ = lambda self: hash(self._tag[2])
+    _getframe = psyco.support._getframe
+
+
+if "psyco" in sys.modules:
+    enable_psyco_support()
+
+
 class CallStack(object):
     """Class managing per-call-stack context information.
 
@@ -54,6 +75,9 @@ class CallStack(object):
 
     def __len__(self):
         return len(self._frame_stacks)
+
+    def clear(self):
+        self._frame_stacks.clear()
 
     def push(self,item,offset=0):
         """Push the given item onto the stack for current execution frame.

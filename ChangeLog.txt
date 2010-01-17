@@ -4,6 +4,8 @@ v0.2.4:
 
     * speed up invocation of functions within a restart context, by replacing
       the _cur_calls CallStack with a custom control-flow exception.
+    * compatability with psyco's simulated stack frames; just make sure you
+      import psyco first or call withrestart.callstack.enable_psyco_support().
 
 v0.2.3:
 
