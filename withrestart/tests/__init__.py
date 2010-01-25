@@ -2,12 +2,17 @@
 from __future__ import with_statement
 
 import os
+import sys
 import unittest
 import threading
 import timeit
 
 import withrestart
 from withrestart import *
+
+#import psyco
+#withrestart.callstack.enable_psyco_support()
+#psyco.full()
 
 
 def div(a,b):
@@ -18,8 +23,12 @@ class TestRestarts(unittest.TestCase):
 
     def tearDown(self):
         # Check that no stray frames exist in various CallStacks
-        self.assertEquals(len(withrestart._cur_restarts),0)
-        self.assertEquals(len(withrestart._cur_handlers),0)
+        try:
+            self.assertEquals(len(withrestart._cur_restarts),0)
+            self.assertEquals(len(withrestart._cur_handlers),0)
+        finally:
+            withrestart._cur_restarts.clear()
+            withrestart._cur_handlers.clear()
 
     def test_basic(self):
         def handle_TypeError(e):
@@ -244,9 +253,11 @@ class TestRestarts(unittest.TestCase):
             #  Make sure that the restarts inside the suspended generator
             #  are not visible outside it.
             g = check_items(range(8))
-            self.assertEquals(g.next(),0)
-            self.assertEquals(find_restart("skip"),None)
-            g.close()
+            try:
+                self.assertEquals(g.next(),0)
+                self.assertEquals(find_restart("skip"),None)
+            finally:
+                g.close()
 
 
     def test_overhead(self):
@@ -256,6 +267,10 @@ class TestRestarts(unittest.TestCase):
         and "test_restart" functions used by this test are importable from
         the separate sub-module "withrestart.tests.overhead".
         """
+        #  If psyco is in use, we need to muck around getting simulated
+        #  frame objects.  All performance bets are off.
+        if "psyco" in sys.modules:
+            return
         def dotimeit(name,args):
             testcode = "%s(%s)" % (name,args,)
             setupcode = "from withrestart.tests.overhead import %s" % (name,)
@@ -273,6 +288,60 @@ class TestRestarts(unittest.TestCase):
         #  Restarts used to return default value
         assertOverheadLessThan(27,"7,0")
 
+    def test_callstack(self):
+        stack = CallStack()
+        stack.push("hello")
+        assert list(stack.items()) == ["hello"]
+        def testsingle():
+            stack.push("world")
+            stack.push("how")
+            assert list(stack.items()) == ["how","world","hello"]
+            stack.pop()
+            assert list(stack.items()) == ["world","hello"]
+        testsingle()
+        assert list(stack.items()) == ["hello"]
+        def testnested():
+            stack.push("world")
+            stack.push("how")
+            assert list(stack.items()) == ["how","world","hello"]
+            def subtest():
+                stack.push("are")
+                stack.push("you")
+                assert list(stack.items())==["you","are","how","world","hello"]
+            subtest()
+            assert list(stack.items()) == ["how","world","hello"]
+            stack.pop()
+            assert list(stack.items()) == ["world","hello"]
+        testnested()
+        assert list(stack.items()) == ["hello"]
+        def testgenerator():
+            stack.push("world")
+            stack.push("how")
+            assert list(stack.items()) == ["how","world","hello"]
+            def gen():
+                stack.push("are",1)
+                stack.push("you")
+                assert list(stack.items())==["you","are","how","world","hello"]
+                yield None
+                assert list(stack.items())==["you","are","how","world","hello"]
+                stack.pop()
+                yield None
+                assert list(stack.items())==["are","how","world","hello"]
+            g = gen()
+            assert list(stack.items()) == ["how","world","hello"]
+            g.next()
+            assert list(stack.items()) == ["are","how","world","hello"]
+            g.next()
+            assert list(stack.items()) == ["are","how","world","hello"]
+            try:
+                g.next()
+            except StopIteration:
+                pass
+            stack.pop()
+            assert list(stack.items()) == ["how","world","hello"]
+        testgenerator()
+        assert list(stack.items()) == ["hello"]
+       
 
 
     def test_README(self):
@@ -294,5 +363,4 @@ class TestRestarts(unittest.TestCase):
                 f = open(readme,"wb")
                 f.write(withrestart.__doc__)
                 f.close()
-
 
