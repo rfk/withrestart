@@ -109,6 +109,21 @@ class TestRestarts(unittest.TestCase):
             self.assertEquals(aggregate(range(8)),sum(range(8)) - 7 + 9)
 
 
+    def test_raise_error(self):
+        with Handler(TypeError,"raise_error",ValueError):
+            with restarts(use_value,raise_error) as invoke:
+                self.assertEquals(invoke(div,6,3),2)
+                self.assertRaises(ValueError,invoke,div,6,"2")
+            with Handler(ValueError,"raise_error",RuntimeError):
+                with restarts(use_value,raise_error) as invoke:
+                    self.assertEquals(invoke(div,6,3),2)
+                    self.assertRaises(RuntimeError,invoke,div,6,"2")
+            with Handler(ValueError,"use_value",None):
+                with restarts(use_value,raise_error) as invoke:
+                    self.assertEquals(invoke(div,6,3),2)
+                    self.assertEquals(invoke(div,6,"2"),None)
+
+
     def test_threading(self):
         def calc(a,b):
             with restarts(use_value) as invoke:
@@ -147,9 +162,9 @@ class TestRestarts(unittest.TestCase):
                     self.assertRaises(ValueError,calc2,6,"2")
                 self.assertRaises(TypeError,calc2,6,"2")
                 self.assertRaises(TypeError,calc,6,"2")
-            except Exception, e:
+            except Exception:
                 evt2.set()
-                errors.append(e)
+                errors.append(sys.exc_info())
         t1 = threading.Thread(target=thread1)
         t2 = threading.Thread(target=thread2)
         t1.start()
@@ -157,7 +172,7 @@ class TestRestarts(unittest.TestCase):
         t1.join()
         t2.join()
         for e in errors:
-            raise e
+            raise e[0], e[1], e[2]
 
 
     def test_inline_definitions(self):

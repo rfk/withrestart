@@ -1,5 +1,10 @@
 
 
+v0.2.5:
+
+    * make raise_error() inject the new error back into the error-handling
+      machinery; to get the old behaviour, just raise the error directly.
+
 v0.2.4:
 
     * speed up invocation of functions within a restart context, by replacing

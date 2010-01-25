@@ -175,6 +175,7 @@ __version__ = "%d.%d.%d%s" % (__ver_major__,__ver_minor__,
                               __ver_patch__,__ver_sub__)
 
 
+import sys
 
 from withrestart.callstack import CallStack
 _cur_restarts = CallStack()  # per-frame active restarts
@@ -219,6 +220,9 @@ class InvokeRestart(ControlFlowException):
         """Convenience methods for invoking the selected restart."""
         return self.restart.invoke(*self.args,**self.kwds)
 
+    def __str__(self):
+        return "<InvokeRestart '%s' with %s, %s>" % (self.restart.name,self.args,self.kwds)
+
 
 class ExitRestart(ControlFlowException):
     """Exception raised by restarts to immediately exit their context.
@@ -248,6 +252,24 @@ class RetryLastCall(ControlFlowException):
     you really shouldn't be catching it except under special circumstances.
     """
     pass
+
+
+class RaiseNewError(ControlFlowException):
+    """Exception raised by restarts to re-raise a different error.
+
+    Restarts can raise RaiseNewErorr to re-start the error handling machinery
+    using a new exception.  This is different to simply raising an exception
+    inside the restart function - RaiseNewError causes the new exception to
+    be pushed back through the error-handling machinery and potentially handled
+    by the same restart context.
+
+    This is used as a flow-control mechanism and should never be seen by
+    code outside this module.  It's purposely not a sublcass of RestartError;
+    you really shouldn't be catching it except under special circumstances.
+    """
+
+    def __init__(self,error):
+        self.error = error
 
 
 
@@ -373,26 +395,69 @@ class RestartSuite(object):
         If a restart is invoked in response to an error, its return value
         is used in place of the function call.
         """
+        exc_type, exc_value, traceback = None, None, None
         try:
             return func(*args,**kwds)
-        except Exception, err:
+        except InvokeRestart, e:
+            if e.restart in self.restarts:
+                try:
+                    return e.invoke()
+                except RetryLastCall:
+                    return self(func,*args,**kwds)
+                except RaiseNewError, newerr:
+                    exc_info = self._normalise_error(newerr.error)
+                    exc_type, exc_value = exc_info[:2]
+                    if exc_info[2] is not None:
+                        traceback = exc_info[2]
+            else:
+                raise
+        except Exception:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+        while exc_value is not None:
             try:
-                self._invoke_handlers(err)
+                self._invoke_handlers(exc_value)
             except InvokeRestart, e:
                 if e.restart in self.restarts:
                     try:
                         return e.invoke()
                     except RetryLastCall:
                         return self(func,*args,**kwds)
-                raise
+                    except RaiseNewError, newerr:
+                        exc_info = self._normalise_error(newerr.error)
+                        exc_type, exc_value = exc_info[:2]
+                        if exc_info[2] is not None:
+                            traceback = exc_info[2]
+                else:
+                    raise
             else:
-                raise
+                raise exc_type, exc_value, traceback
+
+    def _normalise_error(self,error):
+        exc_type, exc_value, traceback = None, None, None
+        if isinstance(error,BaseException):
+            exc_type = type(error)
+            exc_value = error
+        elif isinstance(error,type):
+            exc_type = error
+            exc_value = error()
+        else:
+            values = tuple(error)
+            if len(values) == 1:
+                exc_type = values[0]
+                exc_info = exc_type()
+            elif len(values) == 2:
+                exc_type, exc_info = values
+            elif len(values) == 3:
+                exc_type, exc_value, traceback = values
+            else:
+                raise ValueError("too many items in exception tuple")
+        return exc_type, exc_value, traceback
 
     def __enter__(self):
         _cur_restarts.push(self,1)
         return self
 
-    def __exit__(self,exc_type,exc_value,traceback):
+    def __exit__(self,exc_type,exc_value,traceback,internal=False):
         try:
             if exc_type is not None:
                 if exc_type is InvokeRestart:
@@ -419,7 +484,8 @@ class RestartSuite(object):
                     else:
                         return False
         finally:
-            _cur_restarts.pop()
+            if not internal:
+                _cur_restarts.pop()
 
     def _invoke_restart(self,r):
         try:
@@ -429,6 +495,9 @@ class RestartSuite(object):
                 raise
         except RetryLastCall:
             return False
+        except RaiseNewError, e:
+             exc_type, exc_value, traceback = self._normalise_error(e.error)
+             return self.__exit__(exc_type,exc_value,traceback,internal=True)
         return True
 
     def _invoke_handlers(self,e):
@@ -636,14 +705,6 @@ def find_handlers(err):
     return handlers
 
 
-def use_value(value):
-    """Pre-defined restart that returns the given value."""
-    return value
-
-def raise_error(error):
-    """Pre-defined restart that raises the given error."""
-    raise error
-
 def skip():
     """Pre-defined restart that skips to the end of the restart context."""
     raise ExitRestart
@@ -651,6 +712,14 @@ def skip():
 def retry():
     """Pre-defined restart that retries the most-recently-invoked function."""
     raise RetryLastCall
+
+def raise_error(error):
+    """Pre-defined restart that raises the given error."""
+    raise RaiseNewError(error)
+
+def use_value(value):
+    """Pre-defined restart that returns the given value."""
+    return value
 
 
 def _load_name_in_scope(func,name):
