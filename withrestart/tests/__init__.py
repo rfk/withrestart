@@ -209,6 +209,18 @@ class TestRestarts(unittest.TestCase):
                 self.assertRaises(MissingRestartError,invoke,div,6,0)
                 h.del_handler(handle_ZDE)
                 self.assertRaises(ZeroDivisionError,invoke,div,6,0)
+                @invoke.add_restart(name="my_raise_error")
+                def my_raise_error_restart(e):
+                    raise e
+                self.assertRaises(ZeroDivisionError,invoke,div,6,0)
+                @h.add_handler
+                def handle_ZeroDivisionError(e):
+                    raise InvokeRestart(my_raise_error_restart,RuntimeError)
+                self.assertRaises(RuntimeError,invoke,div,6,0)
+                invoke.del_restart(my_raise_error_restart)
+                self.assertRaises(MissingRestartError,invoke,div,6,0)
+                h.del_handler(handle_ZeroDivisionError)
+                self.assertRaises(ZeroDivisionError,invoke,div,6,0)
 
 
     def test_retry(self):

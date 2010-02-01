@@ -521,7 +521,7 @@ def find_restart(name):
     """
     for suite in _cur_restarts.items():
         for restart in suite.restarts:
-            if restart.name == name:
+            if restart.name == name or restart.func == name:
                 return restart
     return None
 
