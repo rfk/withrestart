@@ -1,4 +1,9 @@
 
+v0.2.6:
+
+    * make find_restart() search by function object as well as by name.
+    * make add_handler() automatically determine exc_type for functions
+      named "handle_<ERRNM>" as well as those named "<ERRNM>".
 
 v0.2.5:
 
