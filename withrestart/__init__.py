@@ -652,10 +652,20 @@ class HandlerSuite(object):
         def do_add_handler(func):
             if isinstance(func,(Handler,HandlerSuite,)):
                 h = func
-            elif exc_type is None:
-                h = Handler(_load_name_in_scope(func,func.func_name),func)
             else:
-                h = Handler(exc_type,func)
+                if exc_type is not None:
+                    h = Handler(exc_type,func)
+                else:
+                    exc_name = func.func_name
+                    try:
+                        exc = _load_name_in_scope(func,exc_name)
+                    except NameError:
+                        if exc_name.startswith("handle_"):
+                            exc_name = exc_name[7:]
+                            exc = _load_name_in_scope(func,exc_name)
+                        else:
+                            raise
+                    h = Handler(exc,func)
             self._add_handler(h)
             return func
         if func is None:
