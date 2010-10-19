@@ -1,4 +1,8 @@
 
+v0.2.7:
+
+    * correctly report traceback info when re-raising an exception.
+
 v0.2.6:
 
     * make find_restart() search by function object as well as by name.
