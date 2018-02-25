@@ -1,6 +1,14 @@
 
+Status: Unmaintained
+====================
 
-  withrestart:  structured error recovery using named restart functions
+[![No Maintenance Intended](http://unmaintained.tech/badge.svg)](http://unmaintained.tech/)
+
+I am [no longer actively maintaining this project](https://rfk.id.au/blog/entry/archiving-open-source-projects/).
+
+
+withrestart:  structured error recovery using named restart functions
+=====================================================================
 
 This is a Pythonisation (Lispers might rightly say "bastardisation") of the
 restart-based condition system of Common Lisp.  It's designed to make error
